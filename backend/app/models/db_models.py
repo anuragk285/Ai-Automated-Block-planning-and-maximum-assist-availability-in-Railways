@@ -165,3 +165,18 @@ class WeatherForecast(Base):
     rainfall_mm = Column(Float, default=5.0)
     wind_speed_kmh = Column(Float, default=15.0)
     risk_level = Column(String, default="Low") # Low, Medium, High
+
+class BlockSection(Base):
+    __tablename__ = "block_sections"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    section_id = Column(String, index=True, nullable=False)
+    block_group_id = Column(String, nullable=False)
+    track_number = Column(Integer, default=1)
+    start_time = Column(String, nullable=False)
+    duration = Column(String, nullable=False)
+    status = Column(String, default="Proposed")
+    traffic_sensitivity = Column(String, default="High")
+    from_station_code = Column(String, nullable=False)
+    to_station_code = Column(String, nullable=False)
+

@@ -150,3 +150,17 @@ export interface EmergencyDiff {
     after_plan: any[];
   };
 }
+
+export interface BlockSectionItem {
+  id?: number;
+  section_id: string;
+  block_group_id: string;
+  track_number: number;
+  start_time: string;
+  duration: string;
+  status: string;
+  traffic_sensitivity: string;
+  from_station_code: string;
+  to_station_code: string;
+}
+

@@ -1,12 +1,15 @@
-import React, { useState } from 'react';
-import { BlockPlanItem } from '../types';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import { BlockPlanItem, BlockSectionItem, TrainItem } from '../types';
 import { ExplainBlockModal } from './ExplainBlockModal';
+import { AddBlockModal } from './AddBlockModal';
 import { formatTime24 } from '../utils/timeFormatter';
 import { useClock, formatTimeISTShort } from '../utils/clock';
 import {
   Calendar, CheckCircle2, XCircle, Info, Zap,
-  Clock, AlertTriangle, Layers
+  Clock, AlertTriangle, Layers, Plus, ShieldAlert, Train, RefreshCw
 } from 'lucide-react';
+
 
 interface BlockPlanGanttProps {
   blocks: BlockPlanItem[];
@@ -52,6 +55,38 @@ export const BlockPlanGantt: React.FC<BlockPlanGanttProps> = ({
   const [rejectingBlockId, setRejectingBlockId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState<string>('');
 
+  const [isAddBlockModalOpen, setIsAddBlockModalOpen] = useState<boolean>(false);
+  const [blockSections, setBlockSections] = useState<BlockSectionItem[]>([]);
+  const [selectedImpactBlock, setSelectedImpactBlock] = useState<BlockSectionItem | null>(null);
+  const [impactedTrains, setImpactedTrains] = useState<TrainItem[]>([]);
+  const [isCheckingImpact, setIsCheckingImpact] = useState<boolean>(false);
+
+  const fetchBlockSections = async () => {
+    try {
+      const resp = await axios.get('/api/block-sections');
+      setBlockSections(resp.data || []);
+    } catch (err) {
+      console.error('Error fetching block sections:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchBlockSections();
+  }, []);
+
+  const handleCheckImpact = async (bs: BlockSectionItem) => {
+    setSelectedImpactBlock(bs);
+    setIsCheckingImpact(true);
+    try {
+      const resp = await axios.get(`/api/block-sections/impact?from_station_code=${bs.from_station_code}&to_station_code=${bs.to_station_code}`);
+      setImpactedTrains(resp.data?.impacted_trains || []);
+    } catch (err) {
+      console.error('Error checking block impact:', err);
+    } finally {
+      setIsCheckingImpact(false);
+    }
+  };
+
   // Current IST hour (fractional) for the "now" cursor
   const nowHrIST = (() => {
     const istStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' });
@@ -90,6 +125,14 @@ export const BlockPlanGantt: React.FC<BlockPlanGanttProps> = ({
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsAddBlockModalOpen(true)}
+            className="flex items-center space-x-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs px-3 py-2 rounded-lg transition shadow-md shadow-amber-500/20"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Block Section</span>
+          </button>
+
           {/* Legend */}
           <div className="hidden sm:flex items-center gap-3 text-xs font-mono text-slate-400">
             <span className="flex items-center gap-1.5">
@@ -114,6 +157,7 @@ export const BlockPlanGantt: React.FC<BlockPlanGanttProps> = ({
           </button>
         </div>
       </div>
+
 
       {/* ── 24-Hour Gantt Chart ── */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-2xl overflow-x-auto">
@@ -440,8 +484,161 @@ export const BlockPlanGantt: React.FC<BlockPlanGanttProps> = ({
         </div>
       </div>
 
+      {/* ── Block Sections & Dynamic Train Impact Cross-Reference Panel ── */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-2xl space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <ShieldAlert className="w-5 h-5 text-amber-400" />
+            <div>
+              <h3 className="text-sm font-bold text-white">Maintenance Block Sections & Impact Cross-Reference</h3>
+              <p className="text-xs text-slate-400">
+                Persisted block_sections DB table join against train route assigned_path_json
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={fetchBlockSections}
+            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 transition"
+            title="Refresh Block Sections"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Table of Block Sections */}
+          <div className="space-y-2">
+            <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Persisted Block Sections</h4>
+            <div className="border border-slate-800 rounded-lg overflow-hidden bg-slate-950/60 max-h-72 overflow-y-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-900 border-b border-slate-800 font-bold text-slate-400">
+                    <th className="py-2.5 px-3">Section ID</th>
+                    <th className="py-2.5 px-3">From → To</th>
+                    <th className="py-2.5 px-3">Track</th>
+                    <th className="py-2.5 px-3">Time / Dur</th>
+                    <th className="py-2.5 px-3 text-right">Impact</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800 text-slate-300 font-mono">
+                  {blockSections.length > 0 ? (
+                    blockSections.map((bs) => {
+                      const isSelected = selectedImpactBlock?.section_id === bs.section_id;
+                      return (
+                        <tr
+                          key={bs.id || bs.section_id}
+                          className={`hover:bg-slate-800/60 transition cursor-pointer ${
+                            isSelected ? 'bg-amber-500/10 border-l-2 border-amber-400' : ''
+                          }`}
+                          onClick={() => handleCheckImpact(bs)}
+                        >
+                          <td className="py-2 px-3 font-bold text-amber-300">{bs.section_id}</td>
+                          <td className="py-2 px-3 text-slate-200">
+                            {bs.from_station_code} → {bs.to_station_code}
+                          </td>
+                          <td className="py-2 px-3">Trk #{bs.track_number}</td>
+                          <td className="py-2 px-3 text-slate-400">
+                            {bs.start_time} ({bs.duration}h)
+                          </td>
+                          <td className="py-2 px-3 text-right">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCheckImpact(bs);
+                              }}
+                              className="px-2 py-0.5 bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 border border-blue-500/40 rounded text-[11px] font-semibold transition"
+                            >
+                              Check
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={5} className="py-6 text-center text-slate-500">
+                        No block sections recorded. Click 'Add Block Section' to create one.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Dynamic Train Impact Panel */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center space-x-2">
+                <Train className="w-3.5 h-3.5 text-blue-400" />
+                <span>
+                  Impacted Trains ({selectedImpactBlock ? `${selectedImpactBlock.from_station_code} → ${selectedImpactBlock.to_station_code}` : 'Select a Block'})
+                </span>
+              </h4>
+              {selectedImpactBlock && (
+                <span className="text-xs px-2 py-0.5 bg-slate-800 text-slate-300 rounded font-mono font-bold">
+                  {impactedTrains.length} impacted
+                </span>
+              )}
+            </div>
+
+            <div className="border border-slate-800 rounded-lg p-3 bg-slate-950/60 min-h-[160px] max-h-72 overflow-y-auto space-y-2">
+              {!selectedImpactBlock ? (
+                <div className="py-10 text-center text-xs text-slate-500 font-medium">
+                  Select a block section above to calculate live route impacts against train paths.
+                </div>
+              ) : isCheckingImpact ? (
+                <div className="py-10 flex flex-col items-center justify-center space-y-2 text-xs text-slate-400">
+                  <div className="w-5 h-5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                  <span>Evaluating train path sequences...</span>
+                </div>
+              ) : impactedTrains.length > 0 ? (
+                <div className="space-y-2">
+                  {impactedTrains.map((t) => (
+                    <div
+                      key={t.train_id}
+                      className="p-2.5 bg-slate-900 border border-amber-500/30 rounded-lg flex items-center justify-between text-xs"
+                    >
+                      <div>
+                        <div className="font-bold text-slate-200 flex items-center space-x-2">
+                          <span className="text-amber-400 font-mono">{t.train_id}</span>
+                          <span>•</span>
+                          <span>{t.train_name}</span>
+                          <span className="text-slate-400 font-mono">(#{t.train_number})</span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                          Route: {t.origin_station_code} → {t.destination_station_code} • Dep {t.scheduled_departure_time}
+                        </div>
+                      </div>
+                      <span className="px-2 py-0.5 bg-red-500/20 text-red-400 border border-red-500/40 rounded text-[11px] font-bold">
+                        IMPACTED
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-8 text-center text-xs text-slate-400 space-y-1">
+                  <div className="font-bold text-emerald-400">No Impact Detected</div>
+                  <div className="text-[11px] text-slate-500">
+                    No active train paths pass through <span className="font-mono text-slate-300">{selectedImpactBlock.from_station_code} → {selectedImpactBlock.to_station_code}</span> in sequence.
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Explain Modal */}
       <ExplainBlockModal block={selectedExplainBlock} onClose={() => setSelectedExplainBlock(null)} />
+
+      {/* Add Block Modal */}
+      <AddBlockModal
+        isOpen={isAddBlockModalOpen}
+        onClose={() => setIsAddBlockModalOpen(false)}
+        onBlockAdded={fetchBlockSections}
+      />
     </div>
   );
 };
+

@@ -136,7 +136,8 @@ export const App: React.FC = () => {
 
             {activeTab === 'network' && <NetworkMap network={network} blocks={blocks} />}
 
-            {activeTab === 'trains' && <TrainsTable trains={trains} network={network} />}
+            {activeTab === 'trains' && <TrainsTable trains={trains} network={network} onRefreshData={fetchAllData} />}
+
 
             {activeTab === 'plan' && (
               <BlockPlanGantt

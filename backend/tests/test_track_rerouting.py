@@ -1,6 +1,10 @@
+import sys, os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import pytest
 import networkx as nx
 from app.pipeline.module12_track_rerouting import resolve_train_for_blocked_track
+
 
 @pytest.fixture
 def mock_network_graph():

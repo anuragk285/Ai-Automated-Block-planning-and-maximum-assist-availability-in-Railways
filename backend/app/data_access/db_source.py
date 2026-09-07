@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.data_access.base import DataSource
 from app.models.db_models import (
     Station, Section, Track, AlternateRoute, Train, Timetable,
-    MaintenanceRequest, AssetCondition, Resource, WeatherForecast
+    MaintenanceRequest, AssetCondition, Resource, WeatherForecast, BlockSection
 )
 
 class DBSource(DataSource):
@@ -181,3 +181,104 @@ class DBSource(DataSource):
             "wind_speed_kmh": wf.wind_speed_kmh,
             "risk_level": wf.risk_level,
         }
+
+    def add_train(self, train_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Insert and commit new train record into database."""
+        original_path = train_data.get("original_path_json")
+        assigned_path = train_data.get("assigned_path_json")
+
+        new_train = Train(
+            train_id=train_data["train_id"],
+            train_number=train_data["train_number"],
+            train_name=train_data["train_name"],
+            train_type=train_data["train_type"],
+            priority_class=train_data.get("priority_class", 2),
+            origin_station_code=train_data["origin_station_code"],
+            destination_station_code=train_data["destination_station_code"],
+            scheduled_departure_time=train_data["scheduled_departure_time"],
+            scheduled_arrival_time=train_data["scheduled_arrival_time"],
+            current_status=train_data.get("current_status", "upcoming"),
+            current_section_code=train_data.get("current_section_code"),
+            original_path_json=json.dumps(original_path) if isinstance(original_path, (list, dict)) else str(original_path or "[]"),
+            assigned_path_json=json.dumps(assigned_path) if isinstance(assigned_path, (list, dict)) else (str(assigned_path) if assigned_path else None)
+        )
+        self.db.add(new_train)
+        self.db.commit()
+        self.db.refresh(new_train)
+        return self._format_train_dict(new_train)
+
+    def add_block_section(self, block_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Insert and commit new block_sections record into database."""
+        bs = BlockSection(
+            section_id=block_data["section_id"],
+            block_group_id=block_data["block_group_id"],
+            track_number=block_data.get("track_number", 1),
+            start_time=block_data["start_time"],
+            duration=block_data["duration"],
+            status=block_data.get("status", "Proposed"),
+            traffic_sensitivity=block_data.get("traffic_sensitivity", "High"),
+            from_station_code=block_data["from_station_code"],
+            to_station_code=block_data["to_station_code"]
+        )
+        self.db.add(bs)
+        self.db.commit()
+        self.db.refresh(bs)
+        return {
+            "id": bs.id,
+            "section_id": bs.section_id,
+            "block_group_id": bs.block_group_id,
+            "track_number": bs.track_number,
+            "start_time": bs.start_time,
+            "duration": bs.duration,
+            "status": bs.status,
+            "traffic_sensitivity": bs.traffic_sensitivity,
+            "from_station_code": bs.from_station_code,
+            "to_station_code": bs.to_station_code
+        }
+
+    def get_block_sections(self) -> List[Dict[str, Any]]:
+        """Retrieve all block section records from database."""
+        sections = self.db.query(BlockSection).all()
+        return [
+            {
+                "id": s.id,
+                "section_id": s.section_id,
+                "block_group_id": s.block_group_id,
+                "track_number": s.track_number,
+                "start_time": s.start_time,
+                "duration": s.duration,
+                "status": s.status,
+                "traffic_sensitivity": s.traffic_sensitivity,
+                "from_station_code": s.from_station_code,
+                "to_station_code": s.to_station_code
+            }
+            for s in sections
+        ]
+
+    def get_impacted_trains_for_block(self, from_stn: str, to_stn: str) -> List[Dict[str, Any]]:
+        """Dynamically compute which trains pass through from_stn -> to_stn in sequence."""
+        all_trains = self.get_trains()
+        impacted = []
+        for t in all_trains:
+            path_data = t["assigned_path"] or t["original_path"] or []
+            station_sequence = []
+            for item in path_data:
+                if isinstance(item, dict) and "station_code" in item:
+                    station_sequence.append(str(item["station_code"]).upper())
+                elif isinstance(item, str):
+                    station_sequence.append(item.upper())
+
+            from_upper = from_stn.upper()
+            to_upper = to_stn.upper()
+
+            is_impacted = False
+            if from_upper in station_sequence and to_upper in station_sequence:
+                idx_from = station_sequence.index(from_upper)
+                idx_to = station_sequence.index(to_upper)
+                if idx_from < idx_to:
+                    is_impacted = True
+
+            if is_impacted:
+                impacted.append(t)
+        return impacted
+

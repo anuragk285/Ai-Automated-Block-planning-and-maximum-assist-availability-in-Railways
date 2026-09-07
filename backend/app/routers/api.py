@@ -36,6 +36,33 @@ class EmergencyRequest(BaseModel):
     duration_hrs: float = 3.5
     start_time_hr: float = 0.0
 
+class TrainCreate(BaseModel):
+    train_id: str
+    train_number: str
+    train_name: str
+    train_type: str
+    priority_class: Optional[int] = 2
+    origin_station_code: str
+    destination_station_code: str
+    scheduled_departure_time: str
+    scheduled_arrival_time: str
+    current_status: Optional[str] = "Scheduled"
+    current_section_code: Optional[str] = None
+    original_path_json: Optional[Any] = []
+    assigned_path_json: Optional[Any] = None
+
+class BlockSectionCreate(BaseModel):
+    section_id: str
+    block_group_id: str
+    track_number: int = 1
+    start_time: str
+    duration: str
+    status: str = "Proposed"
+    traffic_sensitivity: str = "High"
+    from_station_code: str
+    to_station_code: str
+
+
 @router.post("/data/seed")
 def seed_data_endpoint(req: SeedRequest = SeedRequest(), db: Session = Depends(get_db)):
     """Wipe and re-generate synthetic railway network data with seed."""
@@ -61,6 +88,77 @@ def get_train_by_id_endpoint(train_id: str, db: Session = Depends(get_db)):
     if not train:
         raise HTTPException(status_code=404, detail=f"Train with ID {train_id} not found")
     return train
+
+@router.post("/trains", status_code=201)
+def create_train_endpoint(payload: TrainCreate, db: Session = Depends(get_db)):
+    """Create and persist a new train record into the database."""
+    required_fields = {
+        "train_id": payload.train_id,
+        "train_number": payload.train_number,
+        "train_name": payload.train_name,
+        "train_type": payload.train_type,
+        "origin_station_code": payload.origin_station_code,
+        "destination_station_code": payload.destination_station_code,
+        "scheduled_departure_time": payload.scheduled_departure_time,
+        "scheduled_arrival_time": payload.scheduled_arrival_time,
+    }
+    for key, val in required_fields.items():
+        if not val or not str(val).strip():
+            raise HTTPException(status_code=400, detail=f"Missing required NOT NULL field: '{key}'")
+
+    source = DBSource(db)
+    try:
+        new_train = source.add_train(payload.dict())
+        return {"status": "success", "message": "Train inserted successfully", "train": new_train}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Database insertion failed: {str(e)}")
+
+@router.post("/block-sections", status_code=201)
+def create_block_section_endpoint(payload: BlockSectionCreate, db: Session = Depends(get_db)):
+    """Create and persist a new maintenance block section into the database."""
+    required_fields = {
+        "section_id": payload.section_id,
+        "block_group_id": payload.block_group_id,
+        "start_time": payload.start_time,
+        "duration": payload.duration,
+        "from_station_code": payload.from_station_code,
+        "to_station_code": payload.to_station_code,
+    }
+    for key, val in required_fields.items():
+        if not val or not str(val).strip():
+            raise HTTPException(status_code=400, detail=f"Missing required NOT NULL field: '{key}'")
+
+    source = DBSource(db)
+    try:
+        new_block = source.add_block_section(payload.dict())
+        return {"status": "success", "message": "Block section inserted successfully", "block_section": new_block}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Database insertion failed: {str(e)}")
+
+@router.get("/block-sections")
+def get_block_sections_endpoint(db: Session = Depends(get_db)):
+    """Retrieve all block section records from database."""
+    source = DBSource(db)
+    return source.get_block_sections()
+
+@router.get("/block-sections/impact")
+def get_block_impact_endpoint(
+    from_station_code: str = Query(...),
+    to_station_code: str = Query(...),
+    db: Session = Depends(get_db)
+):
+    """Dynamically cross-reference train paths against block section from_station_code and to_station_code."""
+    source = DBSource(db)
+    impacted = source.get_impacted_trains_for_block(from_station_code, to_station_code)
+    return {
+        "from_station_code": from_station_code,
+        "to_station_code": to_station_code,
+        "impacted_count": len(impacted),
+        "impacted_trains": impacted
+    }
+
 
 @router.get("/requests")
 def get_requests_endpoint(db: Session = Depends(get_db)):

@@ -1,22 +1,26 @@
 import React, { useState } from 'react';
 import { TrainItem, NetworkData } from '../types';
 import { TrainDetailPanel } from './TrainDetailPanel';
+import { AddTrainModal } from './AddTrainModal';
 import { formatTime24 } from '../utils/timeFormatter';
-import { Train, Search, ChevronLeft, ChevronRight, ChevronRight as ChevronRightIcon } from 'lucide-react';
+import { Train, Search, ChevronLeft, ChevronRight, ChevronRight as ChevronRightIcon, Plus } from 'lucide-react';
 
 interface TrainsTableProps {
   trains: TrainItem[];
   network: NetworkData | null;
+  onRefreshData?: () => void;
 }
+
 
 const PAGE_SIZE = 50;
 
-export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network }) => {
+export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network, onRefreshData }) => {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
   const [selectedType, setSelectedType] = useState<string>('ALL');
   const [selectedTrain, setSelectedTrain] = useState<TrainItem | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
+  const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
 
   const filteredTrains = trains.filter((t) => {
     if (selectedStatus !== 'ALL') {
@@ -71,6 +75,14 @@ export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network }) => 
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => setIsAddModalOpen(true)}
+            className="flex items-center space-x-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs px-3 py-1.5 rounded-md transition shadow-md shadow-blue-500/20"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Train</span>
+          </button>
+
           {/* Search Box */}
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
@@ -231,6 +243,16 @@ export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network }) => 
 
       {/* Train Detail Panel Modal */}
       <TrainDetailPanel train={selectedTrain} network={network} onClose={() => setSelectedTrain(null)} />
+
+      {/* Add Train Modal */}
+      <AddTrainModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        onTrainAdded={() => {
+          if (onRefreshData) onRefreshData();
+        }}
+      />
     </div>
   );
 };
+
