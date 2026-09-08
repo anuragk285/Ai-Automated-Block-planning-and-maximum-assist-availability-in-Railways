@@ -156,3 +156,125 @@ def resolve_train_for_blocked_track(
         "skipped_stations": skipped_list,
         "disruption_penalty": disruption_penalty
     }
+
+
+def compute_rerouted_path_for_train(
+    train: Dict[str, Any],
+    from_station_code: str,
+    to_station_code: str,
+    network_graph: nx.Graph,
+    base_departure_time: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Computes an alternate routing path for a train affected by a block section
+    between from_station_code and to_station_code.
+    Avoids the direct blocked segment in network_graph and re-sequences the train's route.
+    """
+    original_stops = train.get("original_path", [])
+    if not original_stops:
+        return None
+
+    orig_station_codes = []
+    for item in original_stops:
+        if isinstance(item, dict) and "station_code" in item:
+            orig_station_codes.append(str(item["station_code"]).upper())
+        elif isinstance(item, str):
+            orig_station_codes.append(item.upper())
+
+    from_u = from_station_code.upper()
+    to_u = to_station_code.upper()
+
+    if from_u not in orig_station_codes or to_u not in orig_station_codes:
+        return None
+
+    try:
+        idx_from = orig_station_codes.index(from_u)
+        idx_to = orig_station_codes.index(to_u)
+    except ValueError:
+        return None
+
+    if idx_from >= idx_to:
+        return None
+
+    # Construct bypass graph with the blocked edge/segment removed
+    bypass_graph = network_graph.copy()
+    if bypass_graph.has_edge(from_u, to_u):
+        bypass_graph.remove_edge(from_u, to_u)
+
+    # Also remove any intermediate consecutive edges on the blocked segment
+    for k in range(idx_from, idx_to):
+        u_k, v_k = orig_station_codes[k], orig_station_codes[k + 1]
+        if bypass_graph.has_edge(u_k, v_k):
+            bypass_graph.remove_edge(u_k, v_k)
+
+    origin = orig_station_codes[0]
+    destination = orig_station_codes[-1]
+
+    # 1. First priority: compute a coherent, continuous path from origin to destination on the bypass graph
+    new_station_codes = None
+    try:
+        new_station_codes = nx.shortest_path(bypass_graph, source=origin, target=destination, weight="weight")
+    except (nx.NetworkXNoPath, nx.NodeNotFound):
+        # 2. Fallback: try finding a bypass from from_u to a downstream station on the train's route
+        for j in range(len(orig_station_codes) - 1, idx_to, -1):
+            downstream_stn = orig_station_codes[j]
+            try:
+                subpath = nx.shortest_path(bypass_graph, source=from_u, target=downstream_stn, weight="weight")
+                candidate = orig_station_codes[:idx_from] + subpath + orig_station_codes[j + 1:]
+                # Check that candidate has no duplicate stations (no looping)
+                if len(candidate) == len(set(candidate)):
+                    new_station_codes = candidate
+                    break
+            except (nx.NetworkXNoPath, nx.NodeNotFound):
+                continue
+
+    if not new_station_codes or len(new_station_codes) < 2:
+        return None
+
+    # Graph validity check: every consecutive pair must have a real edge in network_graph
+    for i in range(len(new_station_codes) - 1):
+        u, v = new_station_codes[i], new_station_codes[i + 1]
+        if not network_graph.has_edge(u, v):
+            return None
+
+    # Canonical base departure time: ALWAYS use the train's scheduled departure time
+    dep_str = train.get("scheduled_departure_time") or "06:00"
+    try:
+        parts = dep_str.split(":")
+        start_min = int(parts[0]) * 60 + int(parts[1])
+    except Exception:
+        start_min = 360
+
+    # Build assigned_path stops with consistent chronological progression
+    assigned_path_stops = []
+    current_time_min = start_min
+    for idx, st_code in enumerate(new_station_codes):
+        if idx > 0:
+            u, v = new_station_codes[idx - 1], st_code
+            edge_data = network_graph.get_edge_data(u, v) or {}
+            length_km = float(edge_data.get("length_km", 20.0))
+            # Average speed ~60 km/h -> 1 min per km, minimum 15 mins
+            hop_duration = max(15, int(length_km))
+            current_time_min += hop_duration
+
+        stop_time = format_min_to_24h(current_time_min)
+        assigned_path_stops.append({
+            "station_code": st_code,
+            "scheduled_time": stop_time,
+            "is_bypass": (st_code not in orig_station_codes)
+        })
+
+    skipped = [c for c in orig_station_codes if c not in new_station_codes]
+
+    return {
+        "train_id": train.get("train_id"),
+        "train_number": train.get("train_number"),
+        "is_rerouted": True,
+        "current_status": "rerouted",
+        "assigned_path": assigned_path_stops,
+        "scheduled_departure_time": assigned_path_stops[0]["scheduled_time"],
+        "scheduled_arrival_time": assigned_path_stops[-1]["scheduled_time"],
+        "skipped_stations": skipped,
+        "resolution": f"Rerouted via alternate path {' -> '.join(new_station_codes)}"
+    }
+

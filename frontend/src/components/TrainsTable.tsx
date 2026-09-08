@@ -3,7 +3,8 @@ import { TrainItem, NetworkData } from '../types';
 import { TrainDetailPanel } from './TrainDetailPanel';
 import { AddTrainModal } from './AddTrainModal';
 import { formatTime24 } from '../utils/timeFormatter';
-import { Train, Search, ChevronLeft, ChevronRight, ChevronRight as ChevronRightIcon, Plus } from 'lucide-react';
+import { Train, Search, ChevronLeft, ChevronRight, ChevronRight as ChevronRightIcon, Plus, RotateCcw } from 'lucide-react';
+import { usePersistedFilters } from '../hooks/usePersistedFilters';
 
 interface TrainsTableProps {
   trains: TrainItem[];
@@ -11,22 +12,43 @@ interface TrainsTableProps {
   onRefreshData?: () => void;
 }
 
+interface TrainFilters {
+  searchTerm: string;
+  selectedStatus: string;
+  selectedType: string;
+}
+
+const DEFAULT_TRAIN_FILTERS: TrainFilters = {
+  searchTerm: '',
+  selectedStatus: 'ALL',
+  selectedType: 'ALL',
+};
 
 const PAGE_SIZE = 50;
 
 export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network, onRefreshData }) => {
-  const [searchTerm, setSearchTerm] = useState<string>('');
-  const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
-  const [selectedType, setSelectedType] = useState<string>('ALL');
+  const { filters, updateFilter, resetFilters, hasActiveFilters } = usePersistedFilters<TrainFilters>(
+    'filters:trainsView',
+    DEFAULT_TRAIN_FILTERS
+  );
+  const { searchTerm, selectedStatus, selectedType } = filters;
   const [selectedTrain, setSelectedTrain] = useState<TrainItem | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
 
+  const reroutedCount = trains.filter((t) => t.current_status === 'rerouted' || (t.assigned_path && t.assigned_path.length > 0)).length;
+
   const filteredTrains = trains.filter((t) => {
     const isRerouted = !!(t.assigned_path && t.assigned_path.length > 0) || t.current_status?.toLowerCase() === 'rerouted';
     if (selectedStatus !== 'ALL') {
+<<<<<<< HEAD
       if (selectedStatus === 'rerouted' && !isRerouted) return false;
       if (selectedStatus !== 'rerouted' && (isRerouted || t.current_status !== selectedStatus)) return false;
+=======
+      const isTrainRerouted = t.current_status === 'rerouted' || !!(t.assigned_path && t.assigned_path.length > 0);
+      if (selectedStatus === 'rerouted' && !isTrainRerouted) return false;
+      if (selectedStatus !== 'rerouted' && t.current_status !== selectedStatus) return false;
+>>>>>>> 416dae921c4bccc6fceb6381e6b789a3d8373f37
     }
     if (selectedType !== 'ALL' && t.train_type !== selectedType) return false;
 
@@ -68,7 +90,12 @@ export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network, onRef
           <Train className="w-5 h-5 text-blue-400 shrink-0" />
           <div>
             <h2 className="text-base font-bold text-white">Live Train Movements & Timetables</h2>
-            <p className="text-xs text-slate-400">Network-wide active train inventory ({trains.length} trains seeded)</p>
+            <p className="text-xs text-slate-400">
+              Network-wide active train inventory ({trains.length} trains seeded)
+              {reroutedCount > 0 && (
+                <span className="ml-2 text-amber-400 font-semibold">• {reroutedCount} rerouted</span>
+              )}
+            </p>
           </div>
           <span className="text-xs bg-slate-700 text-slate-300 px-2.5 py-0.5 rounded-full font-mono font-semibold">
             {filteredTrains.length} matching
@@ -92,7 +119,7 @@ export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network, onRef
               placeholder="Search train name/number/station..."
               value={searchTerm}
               onChange={(e) => {
-                setSearchTerm(e.target.value);
+                updateFilter('searchTerm', e.target.value);
                 setCurrentPage(1);
               }}
               className="bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded-md pl-8 pr-3 py-1.5 w-60 focus:outline-none focus:border-blue-500 placeholder-slate-500"
@@ -105,7 +132,7 @@ export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network, onRef
             <select
               value={selectedStatus}
               onChange={(e) => {
-                setSelectedStatus(e.target.value);
+                updateFilter('selectedStatus', e.target.value);
                 setCurrentPage(1);
               }}
               className="bg-slate-900 border border-slate-700 text-xs font-semibold text-slate-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-blue-500"
@@ -124,7 +151,7 @@ export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network, onRef
             <select
               value={selectedType}
               onChange={(e) => {
-                setSelectedType(e.target.value);
+                updateFilter('selectedType', e.target.value);
                 setCurrentPage(1);
               }}
               className="bg-slate-900 border border-slate-700 text-xs font-semibold text-slate-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-blue-500"
@@ -136,6 +163,21 @@ export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network, onRef
               <option value="Freight">Freight</option>
             </select>
           </div>
+
+          {/* Clear Filters Button */}
+          {hasActiveFilters && (
+            <button
+              onClick={() => {
+                resetFilters();
+                setCurrentPage(1);
+              }}
+              className="flex items-center space-x-1 text-xs text-amber-400 hover:text-amber-300 font-semibold px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-md transition"
+              title="Reset all filters to defaults"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Clear filters</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -179,7 +221,12 @@ export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network, onRef
                       </td>
                       <td className="py-3 px-4 font-mono text-emerald-400 font-bold">Prio #{t.priority_class}</td>
                       <td className="py-3 px-4 font-mono text-slate-300">
-                        {t.origin_station_code} → {t.destination_station_code}
+                        <div>{t.origin_station_code} → {t.destination_station_code}</div>
+                        {isRerouted && t.assigned_path && t.assigned_path.length > 0 && (
+                          <div className="text-[10px] text-amber-400 font-semibold mt-0.5 truncate max-w-xs" title={`Rerouted Path: ${t.assigned_path.map((p: any) => (typeof p === 'string' ? p : p.station_code)).join(' → ')}`}>
+                            ↳ Rerouted: {t.assigned_path.map((p: any) => (typeof p === 'string' ? p : p.station_code)).join(' → ')}
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 px-4 font-mono text-slate-200">{formatTime24(t.scheduled_departure_time)}</td>
                       <td className="py-3 px-4 font-mono text-slate-200">{formatTime24(t.scheduled_arrival_time)}</td>

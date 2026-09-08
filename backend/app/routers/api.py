@@ -132,7 +132,13 @@ def create_block_section_endpoint(payload: BlockSectionCreate, db: Session = Dep
     source = DBSource(db)
     try:
         new_block = source.add_block_section(payload.dict())
-        return {"status": "success", "message": "Block section inserted successfully", "block_section": new_block}
+        return {
+            "status": "success",
+            "message": f"Block section inserted successfully. {new_block.get('rerouted_count', 0)} trains rerouted.",
+            "block_section": new_block,
+            "rerouted_trains_count": new_block.get("rerouted_count", 0),
+            "rerouted_trains": new_block.get("rerouted_trains", [])
+        }
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=f"Database insertion failed: {str(e)}")

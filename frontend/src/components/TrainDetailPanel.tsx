@@ -45,6 +45,7 @@ export const TrainDetailPanel: React.FC<TrainDetailPanelProps> = ({ train, netwo
     return map;
   }, [network]);
 
+<<<<<<< HEAD
   // Helper to normalize stops from either string arrays (e.g. ["ADI", "BRC"]) or object arrays ({ station_code: ... })
   const normalizeStops = useCallback(
     (rawStops: TrainStopInput[] | undefined, defaultTime: string, isBypass = false): TrainPathStop[] => {
@@ -66,6 +67,23 @@ export const TrainDetailPanel: React.FC<TrainDetailPanelProps> = ({ train, netwo
     },
     []
   );
+=======
+  // Extract route stop codes and normalize (support both string and object)
+  const rawOriginalStops = train.original_path || [];
+  const rawAssignedStops = isRerouted ? train.assigned_path! : rawOriginalStops;
+  const rawActivePathStops = isRerouted ? rawAssignedStops : rawOriginalStops;
+
+  const normalizeStop = (p: any, idx: number) => {
+    if (typeof p === 'string') {
+      return { station_code: p, scheduled_time: formatTime24(train.scheduled_departure_time) };
+    }
+    return { station_code: p?.station_code || '', scheduled_time: p?.scheduled_time || '--' };
+  };
+
+  const originalStops = rawOriginalStops.map(normalizeStop);
+  const assignedStops = rawAssignedStops.map(normalizeStop);
+  const activePathStops = rawActivePathStops.map(normalizeStop);
+>>>>>>> 416dae921c4bccc6fceb6381e6b789a3d8373f37
 
   const originalStops = useMemo(
     () => normalizeStops(train.original_path, train.scheduled_departure_time, false),
@@ -333,11 +351,15 @@ export const TrainDetailPanel: React.FC<TrainDetailPanelProps> = ({ train, netwo
             </div>
             <div>
               <span className="text-slate-400 text-[11px] block">Scheduled Departure</span>
-              <span className="font-bold text-white text-xs">{formatTime24(train.scheduled_departure_time)}</span>
+              <span className="font-bold text-white text-xs">
+                {formatTime24(activePathStops[0]?.scheduled_time || train.scheduled_departure_time)}
+              </span>
             </div>
             <div>
               <span className="text-slate-400 text-[11px] block">Scheduled Arrival</span>
-              <span className="font-bold text-white text-xs">{formatTime24(train.scheduled_arrival_time)}</span>
+              <span className="font-bold text-white text-xs">
+                {formatTime24(activePathStops[activePathStops.length - 1]?.scheduled_time || train.scheduled_arrival_time)}
+              </span>
             </div>
           </div>
 
@@ -408,6 +430,7 @@ export const TrainDetailPanel: React.FC<TrainDetailPanelProps> = ({ train, netwo
               </div>
             </div>
 
+<<<<<<< HEAD
             {/* Viewport Container */}
             <div
               ref={containerRef}
@@ -494,6 +517,63 @@ export const TrainDetailPanel: React.FC<TrainDetailPanelProps> = ({ train, netwo
                   <span className="text-slate-400">Nearby Regional Stations (Dimmed)</span>
                 </div>
               </div>
+=======
+            {/* Auto-Bounding SVG Canvas */}
+            <div className="w-full bg-slate-900/90 rounded-lg p-2 border border-slate-800 overflow-hidden">
+              <svg viewBox={routeBoundingBox.viewBox} className="w-full h-auto max-h-[260px] min-h-[180px]">
+                {/* 1. Original Scheduled Reference Path (Faint background comparison trace) */}
+                {isRerouted &&
+                  originalStops.map((stop, idx) => {
+                    if (idx === originalStops.length - 1) return null;
+                    const st1 = stationMap[stop.station_code];
+                    const st2 = stationMap[originalStops[idx + 1].station_code];
+                    if (!st1 || !st2) return null;
+
+                    return (
+                      <line
+                        key={`orig-ref-${idx}`}
+                        x1={st1.schematic_x_position}
+                        y1={st1.schematic_y_position}
+                        x2={st2.schematic_x_position}
+                        y2={st2.schematic_y_position}
+                        stroke="#3b82f6"
+                        strokeWidth="2.5"
+                        strokeDasharray="5,5"
+                        strokeOpacity="0.4"
+                      />
+                    );
+                  })}
+
+                {/* Non-rerouted: Standard Active Scheduled Path */}
+                {!isRerouted &&
+                  originalStops.map((stop, idx) => {
+                    if (idx === originalStops.length - 1) return null;
+                    const st1 = stationMap[stop.station_code];
+                    const st2 = stationMap[originalStops[idx + 1].station_code];
+                    if (!st1 || !st2) return null;
+
+                    return (
+                      <line
+                        key={`orig-${idx}`}
+                        x1={st1.schematic_x_position}
+                        y1={st1.schematic_y_position}
+                        x2={st2.schematic_x_position}
+                        y2={st2.schematic_y_position}
+                        stroke="#10b981"
+                        strokeWidth="4"
+                        strokeOpacity="0.9"
+                      />
+                    );
+                  })}
+
+                {/* 2. Active Assigned Reroute Path Lines (Solid Amber) */}
+                {isRerouted &&
+                  assignedStops.map((stop, idx) => {
+                    if (idx === assignedStops.length - 1) return null;
+                    const st1 = stationMap[stop.station_code];
+                    const st2 = stationMap[assignedStops[idx + 1].station_code];
+                    if (!st1 || !st2) return null;
+>>>>>>> 416dae921c4bccc6fceb6381e6b789a3d8373f37
 
               {/* Station Details Tooltip / Popup */}
               {inspectedStation && (
@@ -546,6 +626,7 @@ export const TrainDetailPanel: React.FC<TrainDetailPanelProps> = ({ train, netwo
                     </filter>
                   </defs>
 
+<<<<<<< HEAD
                   {/* ── PASS 1: Nearby Background Track Connections (Dimmed / Off-Colored) ── */}
                   <g className="nearby-sections" opacity="0.32">
                     {nearbySections.map((sec) => {
@@ -585,6 +666,30 @@ export const TrainDetailPanel: React.FC<TrainDetailPanelProps> = ({ train, netwo
                           })
                         }
                       >
+=======
+                  const isAssignedStop = assignedCodes.includes(code);
+                  const isSkipped = isRerouted && skippedStations.includes(code);
+                  const isTerminus = code === train.origin_station_code || code === train.destination_station_code;
+
+                  let nodeColor = '#3b82f6';
+                  let nodeRadius = isTerminus ? '8' : '6';
+                  let nodeOpacity = 1.0;
+
+                  if (isSkipped) {
+                    nodeColor = '#ef4444';
+                    nodeRadius = '4.5';
+                    nodeOpacity = 0.55;
+                  } else if (isAssignedStop && isRerouted) {
+                    nodeColor = isTerminus ? '#10b981' : '#f59e0b';
+                  } else if (isTerminus) {
+                    nodeColor = '#10b981';
+                  }
+
+                  return (
+                    <g key={code} className="cursor-pointer" opacity={nodeOpacity}>
+                      {/* Terminus Outer Halo */}
+                      {isTerminus && (
+>>>>>>> 416dae921c4bccc6fceb6381e6b789a3d8373f37
                         <circle
                           cx={st.schematic_x_position}
                           cy={st.schematic_y_position}
@@ -712,6 +817,7 @@ export const TrainDetailPanel: React.FC<TrainDetailPanelProps> = ({ train, netwo
                   {livePositionCoords && (
                     <g className="live-train-marker pointer-events-none">
                       <circle
+<<<<<<< HEAD
                         cx={livePositionCoords.x}
                         cy={livePositionCoords.y}
                         r="18"
@@ -736,17 +842,37 @@ export const TrainDetailPanel: React.FC<TrainDetailPanelProps> = ({ train, netwo
                         fill="#064e3b"
                         stroke="#10b981"
                         strokeWidth="1.5"
+=======
+                        cx={st.schematic_x_position}
+                        cy={st.schematic_y_position}
+                        r={nodeRadius}
+                        fill={nodeColor}
+                        stroke="#0f172a"
+                        strokeWidth="2"
+>>>>>>> 416dae921c4bccc6fceb6381e6b789a3d8373f37
                       />
                       <text
+<<<<<<< HEAD
                         x={livePositionCoords.x}
                         y={livePositionCoords.y - 16}
                         fill="#6ee7b7"
                         fontSize="8.5"
                         fontWeight="bold"
                         fontFamily="monospace"
+=======
+                        x={st.schematic_x_position}
+                        y={st.schematic_y_position + 16}
+                        fill={isSkipped ? '#f87171' : (isTerminus ? '#ffffff' : (isAssignedStop && isRerouted ? '#fde68a' : '#e2e8f0'))}
+                        fontSize={isTerminus ? '11' : (isSkipped ? '8' : '9')}
+                        fontWeight={isTerminus || isAssignedStop ? 'bold' : 'normal'}
+>>>>>>> 416dae921c4bccc6fceb6381e6b789a3d8373f37
                         textAnchor="middle"
                       >
+<<<<<<< HEAD
                         LIVE TRAIN
+=======
+                        {code} {isSkipped ? '(Bypassed)' : ''}
+>>>>>>> 416dae921c4bccc6fceb6381e6b789a3d8373f37
                       </text>
                     </g>
                   )}
