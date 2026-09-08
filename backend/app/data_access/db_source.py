@@ -1,11 +1,13 @@
 import json
 from typing import List, Dict, Any, Optional
+import networkx as nx
 from sqlalchemy.orm import Session
 from app.data_access.base import DataSource
 from app.models.db_models import (
     Station, Section, Track, AlternateRoute, Train, Timetable,
     MaintenanceRequest, AssetCondition, Resource, WeatherForecast, BlockSection
 )
+from app.pipeline.module12_track_rerouting import compute_rerouted_path_for_train
 
 class DBSource(DataSource):
     """Concrete DataSource implementation backed by SQLAlchemy relational DB."""
@@ -71,7 +73,10 @@ class DBSource(DataSource):
     def get_trains(self, status: Optional[str] = None, train_type: Optional[str] = None) -> List[Dict[str, Any]]:
         query = self.db.query(Train)
         if status and status.upper() != "ALL":
-            query = query.filter_by(current_status=status.lower())
+            if status.lower() == "rerouted":
+                query = query.filter((Train.current_status == "rerouted") | (Train.assigned_path_json.isnot(None)))
+            else:
+                query = query.filter_by(current_status=status.lower())
         if train_type and train_type.upper() != "ALL":
             query = query.filter_by(train_type=train_type)
             
@@ -207,8 +212,21 @@ class DBSource(DataSource):
         self.db.refresh(new_train)
         return self._format_train_dict(new_train)
 
+    def _build_network_graph(self) -> nx.Graph:
+        """Construct NetworkX graph from sections for rerouting path finding."""
+        G = nx.Graph()
+        sections = self.get_sections()
+        for sec in sections:
+            code = sec.get("code", "")
+            u = sec.get("start_station_code")
+            v = sec.get("end_station_code")
+            l = float(sec.get("length_km", 10.0))
+            weight = l * 10.0 if code.startswith("SEC_STN") else l
+            G.add_edge(u, v, weight=weight, length_km=l, code=code)
+        return G
+
     def add_block_section(self, block_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Insert and commit new block_sections record into database."""
+        """Insert and commit new block_sections record into database, and compute reroutes for affected trains."""
         bs = BlockSection(
             section_id=block_data["section_id"],
             block_group_id=block_data["block_group_id"],
@@ -223,6 +241,33 @@ class DBSource(DataSource):
         self.db.add(bs)
         self.db.commit()
         self.db.refresh(bs)
+
+        # Compute reroutes for all impacted trains and persist into DB
+        graph = self._build_network_graph()
+        impacted_trains = self.get_impacted_trains_for_block(bs.from_station_code, bs.to_station_code)
+        rerouted_trains = []
+
+        for t in impacted_trains:
+            reroute_res = compute_rerouted_path_for_train(
+                train=t,
+                from_station_code=bs.from_station_code,
+                to_station_code=bs.to_station_code,
+                network_graph=graph
+            )
+            if reroute_res and reroute_res.get("assigned_path"):
+                db_train = self.db.query(Train).filter(Train.train_id == t["train_id"]).first()
+                if db_train:
+                    db_train.assigned_path_json = json.dumps(reroute_res["assigned_path"])
+                    db_train.current_status = "rerouted"
+                    if reroute_res.get("scheduled_departure_time"):
+                        db_train.scheduled_departure_time = reroute_res["scheduled_departure_time"]
+                    if reroute_res.get("scheduled_arrival_time"):
+                        db_train.scheduled_arrival_time = reroute_res["scheduled_arrival_time"]
+                    rerouted_trains.append(self._format_train_dict(db_train))
+
+        if rerouted_trains:
+            self.db.commit()
+
         return {
             "id": bs.id,
             "section_id": bs.section_id,
@@ -233,7 +278,9 @@ class DBSource(DataSource):
             "status": bs.status,
             "traffic_sensitivity": bs.traffic_sensitivity,
             "from_station_code": bs.from_station_code,
-            "to_station_code": bs.to_station_code
+            "to_station_code": bs.to_station_code,
+            "rerouted_trains": rerouted_trains,
+            "rerouted_count": len(rerouted_trains)
         }
 
     def get_block_sections(self) -> List[Dict[str, Any]]:
@@ -256,11 +303,14 @@ class DBSource(DataSource):
         ]
 
     def get_impacted_trains_for_block(self, from_stn: str, to_stn: str) -> List[Dict[str, Any]]:
-        """Dynamically compute which trains pass through from_stn -> to_stn in sequence."""
+        """Dynamically compute which trains pass through from_stn -> to_stn in sequence and ensure alternate paths are assigned."""
         all_trains = self.get_trains()
         impacted = []
+        graph = None
         for t in all_trains:
-            path_data = t["assigned_path"] or t["original_path"] or []
+            # Impact is determined by the train's original planned path (or assigned path if already set)
+            orig_data = t.get("original_path") or []
+            path_data = orig_data if orig_data else (t.get("assigned_path") or [])
             station_sequence = []
             for item in path_data:
                 if isinstance(item, dict) and "station_code" in item:
@@ -279,6 +329,27 @@ class DBSource(DataSource):
                     is_impacted = True
 
             if is_impacted:
+                # If assigned_path is not yet computed for this train, compute it now
+                if not t.get("assigned_path"):
+                    if graph is None:
+                        graph = self._build_network_graph()
+                    reroute_res = compute_rerouted_path_for_train(
+                        train=t,
+                        from_station_code=from_stn,
+                        to_station_code=to_stn,
+                        network_graph=graph
+                    )
+                    if reroute_res and reroute_res.get("assigned_path"):
+                        db_train = self.db.query(Train).filter(Train.train_id == t["train_id"]).first()
+                        if db_train:
+                            db_train.assigned_path_json = json.dumps(reroute_res["assigned_path"])
+                            db_train.current_status = "rerouted"
+                            if reroute_res.get("scheduled_departure_time"):
+                                db_train.scheduled_departure_time = reroute_res["scheduled_departure_time"]
+                            if reroute_res.get("scheduled_arrival_time"):
+                                db_train.scheduled_arrival_time = reroute_res["scheduled_arrival_time"]
+                            self.db.commit()
+                            t = self._format_train_dict(db_train)
                 impacted.append(t)
         return impacted
 

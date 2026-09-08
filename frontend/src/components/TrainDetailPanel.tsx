@@ -25,10 +25,21 @@ export const TrainDetailPanel: React.FC<TrainDetailPanelProps> = ({ train, netwo
     return map;
   }, [network]);
 
-  // Extract route stop codes
-  const originalStops = train.original_path || [];
-  const assignedStops = isRerouted ? train.assigned_path! : originalStops;
-  const activePathStops = isRerouted ? assignedStops : originalStops;
+  // Extract route stop codes and normalize (support both string and object)
+  const rawOriginalStops = train.original_path || [];
+  const rawAssignedStops = isRerouted ? train.assigned_path! : rawOriginalStops;
+  const rawActivePathStops = isRerouted ? rawAssignedStops : rawOriginalStops;
+
+  const normalizeStop = (p: any, idx: number) => {
+    if (typeof p === 'string') {
+      return { station_code: p, scheduled_time: formatTime24(train.scheduled_departure_time) };
+    }
+    return { station_code: p?.station_code || '', scheduled_time: p?.scheduled_time || '--' };
+  };
+
+  const originalStops = rawOriginalStops.map(normalizeStop);
+  const assignedStops = rawAssignedStops.map(normalizeStop);
+  const activePathStops = rawActivePathStops.map(normalizeStop);
 
   const origCodes = originalStops.map((p) => p.station_code);
   const assignedCodes = assignedStops.map((p) => p.station_code);
@@ -114,11 +125,15 @@ export const TrainDetailPanel: React.FC<TrainDetailPanelProps> = ({ train, netwo
             </div>
             <div>
               <span className="text-slate-400 text-[11px] block">Scheduled Departure</span>
-              <span className="font-bold text-white text-xs">{formatTime24(train.scheduled_departure_time)}</span>
+              <span className="font-bold text-white text-xs">
+                {formatTime24(activePathStops[0]?.scheduled_time || train.scheduled_departure_time)}
+              </span>
             </div>
             <div>
               <span className="text-slate-400 text-[11px] block">Scheduled Arrival</span>
-              <span className="font-bold text-white text-xs">{formatTime24(train.scheduled_arrival_time)}</span>
+              <span className="font-bold text-white text-xs">
+                {formatTime24(activePathStops[activePathStops.length - 1]?.scheduled_time || train.scheduled_arrival_time)}
+              </span>
             </div>
           </div>
 
@@ -168,29 +183,52 @@ export const TrainDetailPanel: React.FC<TrainDetailPanelProps> = ({ train, netwo
             {/* Auto-Bounding SVG Canvas */}
             <div className="w-full bg-slate-900/90 rounded-lg p-2 border border-slate-800 overflow-hidden">
               <svg viewBox={routeBoundingBox.viewBox} className="w-full h-auto max-h-[260px] min-h-[180px]">
-                {/* 1. Original Scheduled Path Lines (Blue) */}
-                {originalStops.map((stop, idx) => {
-                  if (idx === originalStops.length - 1) return null;
-                  const st1 = stationMap[stop.station_code];
-                  const st2 = stationMap[originalStops[idx + 1].station_code];
-                  if (!st1 || !st2) return null;
+                {/* 1. Original Scheduled Reference Path (Faint background comparison trace) */}
+                {isRerouted &&
+                  originalStops.map((stop, idx) => {
+                    if (idx === originalStops.length - 1) return null;
+                    const st1 = stationMap[stop.station_code];
+                    const st2 = stationMap[originalStops[idx + 1].station_code];
+                    if (!st1 || !st2) return null;
 
-                  return (
-                    <line
-                      key={`orig-${idx}`}
-                      x1={st1.schematic_x_position}
-                      y1={st1.schematic_y_position}
-                      x2={st2.schematic_x_position}
-                      y2={st2.schematic_y_position}
-                      stroke={isRerouted ? '#3b82f6' : '#10b981'}
-                      strokeWidth={isRerouted ? '3' : '4'}
-                      strokeDasharray={isRerouted ? '6,4' : 'none'}
-                      strokeOpacity={isRerouted ? 0.6 : 0.9}
-                    />
-                  );
-                })}
+                    return (
+                      <line
+                        key={`orig-ref-${idx}`}
+                        x1={st1.schematic_x_position}
+                        y1={st1.schematic_y_position}
+                        x2={st2.schematic_x_position}
+                        y2={st2.schematic_y_position}
+                        stroke="#3b82f6"
+                        strokeWidth="2.5"
+                        strokeDasharray="5,5"
+                        strokeOpacity="0.4"
+                      />
+                    );
+                  })}
 
-                {/* 2. Assigned Reroute Path Lines (Amber) */}
+                {/* Non-rerouted: Standard Active Scheduled Path */}
+                {!isRerouted &&
+                  originalStops.map((stop, idx) => {
+                    if (idx === originalStops.length - 1) return null;
+                    const st1 = stationMap[stop.station_code];
+                    const st2 = stationMap[originalStops[idx + 1].station_code];
+                    if (!st1 || !st2) return null;
+
+                    return (
+                      <line
+                        key={`orig-${idx}`}
+                        x1={st1.schematic_x_position}
+                        y1={st1.schematic_y_position}
+                        x2={st2.schematic_x_position}
+                        y2={st2.schematic_y_position}
+                        stroke="#10b981"
+                        strokeWidth="4"
+                        strokeOpacity="0.9"
+                      />
+                    );
+                  })}
+
+                {/* 2. Active Assigned Reroute Path Lines (Solid Amber) */}
                 {isRerouted &&
                   assignedStops.map((stop, idx) => {
                     if (idx === assignedStops.length - 1) return null;
@@ -217,18 +255,26 @@ export const TrainDetailPanel: React.FC<TrainDetailPanelProps> = ({ train, netwo
                   const st = stationMap[code];
                   if (!st) return null;
 
-                  const isOrigStop = origCodes.includes(code);
                   const isAssignedStop = assignedCodes.includes(code);
-                  const isSkipped = skippedStations.includes(code);
+                  const isSkipped = isRerouted && skippedStations.includes(code);
                   const isTerminus = code === train.origin_station_code || code === train.destination_station_code;
 
-                  let nodeColor = '#3b82f6'; // Blue
-                  if (isSkipped) nodeColor = '#ef4444'; // Red
-                  else if (isAssignedStop && isRerouted) nodeColor = '#f59e0b'; // Amber
-                  else if (isTerminus) nodeColor = '#10b981'; // Green
+                  let nodeColor = '#3b82f6';
+                  let nodeRadius = isTerminus ? '8' : '6';
+                  let nodeOpacity = 1.0;
+
+                  if (isSkipped) {
+                    nodeColor = '#ef4444';
+                    nodeRadius = '4.5';
+                    nodeOpacity = 0.55;
+                  } else if (isAssignedStop && isRerouted) {
+                    nodeColor = isTerminus ? '#10b981' : '#f59e0b';
+                  } else if (isTerminus) {
+                    nodeColor = '#10b981';
+                  }
 
                   return (
-                    <g key={code} className="cursor-pointer">
+                    <g key={code} className="cursor-pointer" opacity={nodeOpacity}>
                       {/* Terminus Outer Halo */}
                       {isTerminus && (
                         <circle
@@ -245,7 +291,7 @@ export const TrainDetailPanel: React.FC<TrainDetailPanelProps> = ({ train, netwo
                       <circle
                         cx={st.schematic_x_position}
                         cy={st.schematic_y_position}
-                        r={isTerminus ? '8' : '6'}
+                        r={nodeRadius}
                         fill={nodeColor}
                         stroke="#0f172a"
                         strokeWidth="2"
@@ -255,9 +301,9 @@ export const TrainDetailPanel: React.FC<TrainDetailPanelProps> = ({ train, netwo
                       <text
                         x={st.schematic_x_position}
                         y={st.schematic_y_position + 16}
-                        fill={isSkipped ? '#f87171' : (isTerminus ? '#ffffff' : '#e2e8f0')}
-                        fontSize={isTerminus ? '11' : '9'}
-                        fontWeight="bold"
+                        fill={isSkipped ? '#f87171' : (isTerminus ? '#ffffff' : (isAssignedStop && isRerouted ? '#fde68a' : '#e2e8f0'))}
+                        fontSize={isTerminus ? '11' : (isSkipped ? '8' : '9')}
+                        fontWeight={isTerminus || isAssignedStop ? 'bold' : 'normal'}
                         textAnchor="middle"
                         style={{
                           paintOrder: 'stroke fill',
@@ -266,7 +312,7 @@ export const TrainDetailPanel: React.FC<TrainDetailPanelProps> = ({ train, netwo
                           strokeLinejoin: 'round',
                         }}
                       >
-                        {code}
+                        {code} {isSkipped ? '(Bypassed)' : ''}
                       </text>
                     </g>
                   );

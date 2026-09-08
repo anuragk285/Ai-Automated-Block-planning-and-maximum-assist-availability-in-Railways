@@ -166,6 +166,7 @@ export const App: React.FC = () => {
                 onReject={handleRejectBlock}
                 onRunOptimization={handleRunOptimization}
                 isOptimizing={isOptimizing}
+                onRefreshData={fetchAllData}
               />
             )}
 

@@ -36,9 +36,12 @@ export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network, onRef
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
 
+  const reroutedCount = trains.filter((t) => t.current_status === 'rerouted' || (t.assigned_path && t.assigned_path.length > 0)).length;
+
   const filteredTrains = trains.filter((t) => {
     if (selectedStatus !== 'ALL') {
-      if (selectedStatus === 'rerouted' && !t.assigned_path) return false;
+      const isTrainRerouted = t.current_status === 'rerouted' || !!(t.assigned_path && t.assigned_path.length > 0);
+      if (selectedStatus === 'rerouted' && !isTrainRerouted) return false;
       if (selectedStatus !== 'rerouted' && t.current_status !== selectedStatus) return false;
     }
     if (selectedType !== 'ALL' && t.train_type !== selectedType) return false;
@@ -81,7 +84,12 @@ export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network, onRef
           <Train className="w-5 h-5 text-blue-400 shrink-0" />
           <div>
             <h2 className="text-base font-bold text-white">Live Train Movements & Timetables</h2>
-            <p className="text-xs text-slate-400">Network-wide active train inventory ({trains.length} trains seeded)</p>
+            <p className="text-xs text-slate-400">
+              Network-wide active train inventory ({trains.length} trains seeded)
+              {reroutedCount > 0 && (
+                <span className="ml-2 text-amber-400 font-semibold">• {reroutedCount} rerouted</span>
+              )}
+            </p>
           </div>
           <span className="text-xs bg-slate-700 text-slate-300 px-2.5 py-0.5 rounded-full font-mono font-semibold">
             {filteredTrains.length} matching
@@ -207,7 +215,12 @@ export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network, onRef
                       </td>
                       <td className="py-3 px-4 font-mono text-emerald-400 font-bold">Prio #{t.priority_class}</td>
                       <td className="py-3 px-4 font-mono text-slate-300">
-                        {t.origin_station_code} → {t.destination_station_code}
+                        <div>{t.origin_station_code} → {t.destination_station_code}</div>
+                        {isRerouted && t.assigned_path && t.assigned_path.length > 0 && (
+                          <div className="text-[10px] text-amber-400 font-semibold mt-0.5 truncate max-w-xs" title={`Rerouted Path: ${t.assigned_path.map((p: any) => (typeof p === 'string' ? p : p.station_code)).join(' → ')}`}>
+                            ↳ Rerouted: {t.assigned_path.map((p: any) => (typeof p === 'string' ? p : p.station_code)).join(' → ')}
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 px-4 font-mono text-slate-200">{formatTime24(t.scheduled_departure_time)}</td>
                       <td className="py-3 px-4 font-mono text-slate-200">{formatTime24(t.scheduled_arrival_time)}</td>
