@@ -17,6 +17,7 @@ interface BlockPlanGanttProps {
   onReject: (blockId: string, reason: string) => void;
   onRunOptimization: () => void;
   isOptimizing: boolean;
+  onRefreshData?: () => void;
 }
 
 // Hour ticks to show on the ruler (every 2 hours for readability)
@@ -49,6 +50,7 @@ export const BlockPlanGantt: React.FC<BlockPlanGanttProps> = ({
   onReject,
   onRunOptimization,
   isOptimizing,
+  onRefreshData,
 }) => {
   const now = useClock();
   const [selectedExplainBlock, setSelectedExplainBlock] = useState<BlockPlanItem | null>(null);
@@ -609,10 +611,25 @@ export const BlockPlanGantt: React.FC<BlockPlanGanttProps> = ({
                         <div className="text-[11px] text-slate-400 font-mono mt-0.5">
                           Route: {t.origin_station_code} → {t.destination_station_code} • Dep {t.scheduled_departure_time}
                         </div>
+                        {t.assigned_path && t.assigned_path.length > 0 && (
+                          <div className="text-[10px] text-amber-400 font-mono mt-1 flex items-center gap-1">
+                            <span className="font-bold text-amber-300">↳ Rerouted Path:</span>
+                            <span className="truncate max-w-md">
+                              {t.assigned_path.map((p: any) => (typeof p === 'string' ? p : p.station_code)).join(' → ')}
+                            </span>
+                          </div>
+                        )}
                       </div>
-                      <span className="px-2 py-0.5 bg-red-500/20 text-red-400 border border-red-500/40 rounded text-[11px] font-bold">
-                        IMPACTED
-                      </span>
+                      <div className="flex flex-col items-end gap-1 shrink-0 ml-2">
+                        <span className="px-2 py-0.5 bg-red-500/20 text-red-400 border border-red-500/40 rounded text-[11px] font-bold">
+                          IMPACTED
+                        </span>
+                        {t.assigned_path && t.assigned_path.length > 0 && (
+                          <span className="px-1.5 py-0.2 bg-amber-500/20 text-amber-400 border border-amber-500/40 rounded text-[9px] font-mono font-bold">
+                            REROUTED
+                          </span>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -636,7 +653,10 @@ export const BlockPlanGantt: React.FC<BlockPlanGanttProps> = ({
       <AddBlockModal
         isOpen={isAddBlockModalOpen}
         onClose={() => setIsAddBlockModalOpen(false)}
-        onBlockAdded={fetchBlockSections}
+        onBlockAdded={() => {
+          fetchBlockSections();
+          if (onRefreshData) onRefreshData();
+        }}
       />
     </div>
   );

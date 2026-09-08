@@ -23,3 +23,7 @@ frontend/node_moules
 .env
 .env.local
 .env.*.local
+__pycache__/
+*.pyc
+node_modules/
+dist/
