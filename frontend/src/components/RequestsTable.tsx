@@ -1,17 +1,32 @@
 import React, { useState } from 'react';
 import { MaintenanceRequest } from '../types';
-import { Filter, AlertTriangle, ShieldCheck, Clock, Wrench, ChevronDown, ChevronUp, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Filter, AlertTriangle, ShieldCheck, Clock, Wrench, ChevronDown, ChevronUp, Search, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
+import { usePersistedFilters } from '../hooks/usePersistedFilters';
 
 interface RequestsTableProps {
   requests: MaintenanceRequest[];
 }
 
+interface MaintenanceRequestFilters {
+  searchTerm: string;
+  selectedDept: string;
+  selectedPrio: string;
+}
+
+const DEFAULT_REQUEST_FILTERS: MaintenanceRequestFilters = {
+  searchTerm: '',
+  selectedDept: 'ALL',
+  selectedPrio: 'ALL',
+};
+
 const PAGE_SIZE = 30;
 
 export const RequestsTable: React.FC<RequestsTableProps> = ({ requests }) => {
-  const [searchTerm, setSearchTerm] = useState<string>('');
-  const [selectedDept, setSelectedDept] = useState<string>('ALL');
-  const [selectedPrio, setSelectedPrio] = useState<string>('ALL');
+  const { filters, updateFilter, resetFilters, hasActiveFilters } = usePersistedFilters<MaintenanceRequestFilters>(
+    'filters:maintenanceRequests',
+    DEFAULT_REQUEST_FILTERS
+  );
+  const { searchTerm, selectedDept, selectedPrio } = filters;
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
 
@@ -84,7 +99,7 @@ export const RequestsTable: React.FC<RequestsTableProps> = ({ requests }) => {
               placeholder="Search ID, section, defect..."
               value={searchTerm}
               onChange={(e) => {
-                setSearchTerm(e.target.value);
+                updateFilter('searchTerm', e.target.value);
                 setCurrentPage(1);
               }}
               className="bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded-md pl-8 pr-3 py-1.5 w-56 focus:outline-none focus:border-blue-500 placeholder-slate-500"
@@ -97,7 +112,7 @@ export const RequestsTable: React.FC<RequestsTableProps> = ({ requests }) => {
             <select
               value={selectedDept}
               onChange={(e) => {
-                setSelectedDept(e.target.value);
+                updateFilter('selectedDept', e.target.value);
                 setCurrentPage(1);
               }}
               className="bg-slate-900 border border-slate-700 text-xs font-semibold text-slate-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-blue-500"
@@ -115,7 +130,7 @@ export const RequestsTable: React.FC<RequestsTableProps> = ({ requests }) => {
             <select
               value={selectedPrio}
               onChange={(e) => {
-                setSelectedPrio(e.target.value);
+                updateFilter('selectedPrio', e.target.value);
                 setCurrentPage(1);
               }}
               className="bg-slate-900 border border-slate-700 text-xs font-semibold text-slate-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-blue-500"
@@ -127,6 +142,21 @@ export const RequestsTable: React.FC<RequestsTableProps> = ({ requests }) => {
               <option value="Low">Low</option>
             </select>
           </div>
+
+          {/* Clear Filters Button */}
+          {hasActiveFilters && (
+            <button
+              onClick={() => {
+                resetFilters();
+                setCurrentPage(1);
+              }}
+              className="flex items-center space-x-1 text-xs text-amber-400 hover:text-amber-300 font-semibold px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-md transition"
+              title="Reset all filters to defaults"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Clear filters</span>
+            </button>
+          )}
         </div>
       </div>
 

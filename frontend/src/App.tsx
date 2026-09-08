@@ -11,7 +11,27 @@ import { TrainsTable } from './components/TrainsTable';
 import { MaintenanceRequest, NetworkData, BlockPlanItem, TrainItem } from './types';
 
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<string>('overview');
+  const [activeTab, setActiveTabState] = useState<string>(() => {
+    try {
+      const stored = localStorage.getItem('activeTab');
+      if (stored && ['overview', 'requests', 'network', 'trains', 'plan', 'monitoring', 'emergency'].includes(stored)) {
+        return stored;
+      }
+    } catch (e) {
+      console.warn('Failed to read activeTab from localStorage:', e);
+    }
+    return 'overview';
+  });
+
+  const setActiveTab = (tab: string) => {
+    setActiveTabState(tab);
+    try {
+      localStorage.setItem('activeTab', tab);
+    } catch (e) {
+      console.warn('Failed to write activeTab to localStorage:', e);
+    }
+  };
+
   const [requests, setRequests] = useState<MaintenanceRequest[]>([]);
   const [network, setNetwork] = useState<NetworkData | null>(null);
   const [blocks, setBlocks] = useState<BlockPlanItem[]>([]);

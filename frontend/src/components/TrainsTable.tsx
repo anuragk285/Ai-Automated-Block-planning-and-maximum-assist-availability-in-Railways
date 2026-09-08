@@ -3,7 +3,8 @@ import { TrainItem, NetworkData } from '../types';
 import { TrainDetailPanel } from './TrainDetailPanel';
 import { AddTrainModal } from './AddTrainModal';
 import { formatTime24 } from '../utils/timeFormatter';
-import { Train, Search, ChevronLeft, ChevronRight, ChevronRight as ChevronRightIcon, Plus } from 'lucide-react';
+import { Train, Search, ChevronLeft, ChevronRight, ChevronRight as ChevronRightIcon, Plus, RotateCcw } from 'lucide-react';
+import { usePersistedFilters } from '../hooks/usePersistedFilters';
 
 interface TrainsTableProps {
   trains: TrainItem[];
@@ -11,13 +12,26 @@ interface TrainsTableProps {
   onRefreshData?: () => void;
 }
 
+interface TrainFilters {
+  searchTerm: string;
+  selectedStatus: string;
+  selectedType: string;
+}
+
+const DEFAULT_TRAIN_FILTERS: TrainFilters = {
+  searchTerm: '',
+  selectedStatus: 'ALL',
+  selectedType: 'ALL',
+};
 
 const PAGE_SIZE = 50;
 
 export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network, onRefreshData }) => {
-  const [searchTerm, setSearchTerm] = useState<string>('');
-  const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
-  const [selectedType, setSelectedType] = useState<string>('ALL');
+  const { filters, updateFilter, resetFilters, hasActiveFilters } = usePersistedFilters<TrainFilters>(
+    'filters:trainsView',
+    DEFAULT_TRAIN_FILTERS
+  );
+  const { searchTerm, selectedStatus, selectedType } = filters;
   const [selectedTrain, setSelectedTrain] = useState<TrainItem | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
@@ -91,7 +105,7 @@ export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network, onRef
               placeholder="Search train name/number/station..."
               value={searchTerm}
               onChange={(e) => {
-                setSearchTerm(e.target.value);
+                updateFilter('searchTerm', e.target.value);
                 setCurrentPage(1);
               }}
               className="bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded-md pl-8 pr-3 py-1.5 w-60 focus:outline-none focus:border-blue-500 placeholder-slate-500"
@@ -104,7 +118,7 @@ export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network, onRef
             <select
               value={selectedStatus}
               onChange={(e) => {
-                setSelectedStatus(e.target.value);
+                updateFilter('selectedStatus', e.target.value);
                 setCurrentPage(1);
               }}
               className="bg-slate-900 border border-slate-700 text-xs font-semibold text-slate-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-blue-500"
@@ -123,7 +137,7 @@ export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network, onRef
             <select
               value={selectedType}
               onChange={(e) => {
-                setSelectedType(e.target.value);
+                updateFilter('selectedType', e.target.value);
                 setCurrentPage(1);
               }}
               className="bg-slate-900 border border-slate-700 text-xs font-semibold text-slate-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-blue-500"
@@ -135,6 +149,21 @@ export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network, onRef
               <option value="Freight">Freight</option>
             </select>
           </div>
+
+          {/* Clear Filters Button */}
+          {hasActiveFilters && (
+            <button
+              onClick={() => {
+                resetFilters();
+                setCurrentPage(1);
+              }}
+              className="flex items-center space-x-1 text-xs text-amber-400 hover:text-amber-300 font-semibold px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-md transition"
+              title="Reset all filters to defaults"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Clear filters</span>
+            </button>
+          )}
         </div>
       </div>
 
