@@ -23,9 +23,10 @@ export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network, onRef
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
 
   const filteredTrains = trains.filter((t) => {
+    const isRerouted = !!(t.assigned_path && t.assigned_path.length > 0) || t.current_status?.toLowerCase() === 'rerouted';
     if (selectedStatus !== 'ALL') {
-      if (selectedStatus === 'rerouted' && !t.assigned_path) return false;
-      if (selectedStatus !== 'rerouted' && t.current_status !== selectedStatus) return false;
+      if (selectedStatus === 'rerouted' && !isRerouted) return false;
+      if (selectedStatus !== 'rerouted' && (isRerouted || t.current_status !== selectedStatus)) return false;
     }
     if (selectedType !== 'ALL' && t.train_type !== selectedType) return false;
 
@@ -159,7 +160,7 @@ export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network, onRef
             <tbody className="divide-y divide-slate-700/60 text-xs">
               {paginatedTrains.length > 0 ? (
                 paginatedTrains.map((t) => {
-                  const isRerouted = !!(t.assigned_path && t.assigned_path.length > 0);
+                  const isRerouted = !!(t.assigned_path && t.assigned_path.length > 0) || t.current_status?.toLowerCase() === 'rerouted';
                   return (
                     <tr
                       key={t.train_id}
