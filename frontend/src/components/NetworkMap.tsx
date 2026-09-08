@@ -1,20 +1,40 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { NetworkData, StationNode, SectionEdge, BlockPlanItem } from '../types';
 import { MapPin, Activity, Search, Filter, ZoomIn, ZoomOut, RotateCcw, Move, ShieldCheck, AlertTriangle, Layers, Navigation, ArrowRight, X, Compass, CheckCircle2, Info, GitFork } from 'lucide-react';
+import { usePersistedFilters } from '../hooks/usePersistedFilters';
 
 interface NetworkMapProps {
   network: NetworkData | null;
   blocks: BlockPlanItem[];
 }
 
-export const NetworkMap: React.FC<NetworkMapProps> = ({ network, blocks }) => {
-  // Source & Destination Route Selection
-  const [sourceStationCode, setSourceStationCode] = useState<string>('NDLS');
-  const [targetStationCode, setTargetStationCode] = useState<string>('HWH');
+interface NetworkMapFilters {
+  sourceStationCode: string;
+  targetStationCode: string;
+  selectedZone: string;
+  searchQuery: string;
+}
 
-  // Filter & Search & Selection State
-  const [selectedZone, setSelectedZone] = useState<string>('ALL');
-  const [searchQuery, setSearchQuery] = useState<string>('');
+const DEFAULT_NETWORK_FILTERS: NetworkMapFilters = {
+  sourceStationCode: 'NDLS',
+  targetStationCode: 'HWH',
+  selectedZone: 'ALL',
+  searchQuery: '',
+};
+
+export const NetworkMap: React.FC<NetworkMapProps> = ({ network, blocks }) => {
+  // Persisted Route & Search Filters
+  const { filters, updateFilter, resetFilters, hasActiveFilters } = usePersistedFilters<NetworkMapFilters>(
+    'filters:networkMap',
+    DEFAULT_NETWORK_FILTERS
+  );
+  const { sourceStationCode, targetStationCode, selectedZone, searchQuery } = filters;
+
+  const setSourceStationCode = useCallback((code: string) => updateFilter('sourceStationCode', code), [updateFilter]);
+  const setTargetStationCode = useCallback((code: string) => updateFilter('targetStationCode', code), [updateFilter]);
+  const setSelectedZone = useCallback((zone: string) => updateFilter('selectedZone', zone), [updateFilter]);
+  const setSearchQuery = useCallback((query: string) => updateFilter('searchQuery', query), [updateFilter]);
+
   const [hoveredStation, setHoveredStation] = useState<StationNode | null>(null);
   const [selectedStation, setSelectedStation] = useState<StationNode | null>(null);
   const [hoveredSection, setHoveredSection] = useState<SectionEdge | null>(null);
@@ -443,6 +463,21 @@ export const NetworkMap: React.FC<NetworkMapProps> = ({ network, blocks }) => {
             <RotateCcw className="w-3.5 h-3.5 text-blue-400" />
             <span>Auto Fit</span>
           </button>
+
+          {/* Reset Route & Filters */}
+          {hasActiveFilters && (
+            <button
+              onClick={() => {
+                resetFilters();
+                autoFitNetworkView();
+              }}
+              className="flex items-center space-x-1 text-xs text-amber-400 hover:text-amber-300 font-semibold px-2 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-md transition"
+              title="Reset route and search to defaults"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Reset Route</span>
+            </button>
+          )}
         </div>
       </div>
 
