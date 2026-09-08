@@ -1,9 +1,11 @@
 import os
 from pydantic import BaseModel
 
+_default_db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "railway_blocks.db"))
+
 class Settings(BaseModel):
     APP_NAME: str = "Indian Railways AI Block Planning System"
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./railway_blocks.db")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{_default_db_path}")
     RANDOM_SEED: int = 42
 
     # Priority Engine Weights (configurable)
