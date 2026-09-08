@@ -192,6 +192,8 @@ export const BlockPlanGantt: React.FC<BlockPlanGanttProps> = ({
                 </div>
               ))}
             </div>
+            {/* Right column spacer matching section row badges */}
+            <div className="shrink-0 ml-3 w-20" />
           </div>
 
           {/* ── Grid area with traffic bands ── */}
@@ -220,6 +222,8 @@ export const BlockPlanGantt: React.FC<BlockPlanGanttProps> = ({
                 style={{ left: pct(nowHrIST) }}
               />
             </div>
+            {/* Right column spacer matching section row badges */}
+            <div className="shrink-0 ml-3 w-20" />
           </div>
 
           {/* ── Section Rows ── */}
