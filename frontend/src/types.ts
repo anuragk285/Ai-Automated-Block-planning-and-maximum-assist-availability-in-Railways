@@ -105,6 +105,8 @@ export interface TrainPathStop {
   is_bypass?: boolean;
 }
 
+export type TrainStopInput = TrainPathStop | string;
+
 export interface TrainItem {
   train_id: string;
   train_number: string;
@@ -115,10 +117,10 @@ export interface TrainItem {
   destination_station_code: string;
   scheduled_departure_time: string; // 24hr "HH:MM"
   scheduled_arrival_time: string; // 24hr "HH:MM"
-  current_status: 'upcoming' | 'in_transit' | 'completed' | 'rerouted';
+  current_status: 'upcoming' | 'in_transit' | 'completed' | 'rerouted' | 'Scheduled' | string;
   current_section_code?: string;
-  original_path: TrainPathStop[];
-  assigned_path?: TrainPathStop[] | null;
+  original_path: TrainStopInput[];
+  assigned_path?: TrainStopInput[] | null;
 }
 
 export interface DriftAlert {

@@ -39,10 +39,16 @@ export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network, onRef
   const reroutedCount = trains.filter((t) => t.current_status === 'rerouted' || (t.assigned_path && t.assigned_path.length > 0)).length;
 
   const filteredTrains = trains.filter((t) => {
+    const isRerouted = !!(t.assigned_path && t.assigned_path.length > 0) || t.current_status?.toLowerCase() === 'rerouted';
     if (selectedStatus !== 'ALL') {
+<<<<<<< HEAD
+      if (selectedStatus === 'rerouted' && !isRerouted) return false;
+      if (selectedStatus !== 'rerouted' && (isRerouted || t.current_status !== selectedStatus)) return false;
+=======
       const isTrainRerouted = t.current_status === 'rerouted' || !!(t.assigned_path && t.assigned_path.length > 0);
       if (selectedStatus === 'rerouted' && !isTrainRerouted) return false;
       if (selectedStatus !== 'rerouted' && t.current_status !== selectedStatus) return false;
+>>>>>>> 416dae921c4bccc6fceb6381e6b789a3d8373f37
     }
     if (selectedType !== 'ALL' && t.train_type !== selectedType) return false;
 
@@ -196,7 +202,7 @@ export const TrainsTable: React.FC<TrainsTableProps> = ({ trains, network, onRef
             <tbody className="divide-y divide-slate-700/60 text-xs">
               {paginatedTrains.length > 0 ? (
                 paginatedTrains.map((t) => {
-                  const isRerouted = !!(t.assigned_path && t.assigned_path.length > 0);
+                  const isRerouted = !!(t.assigned_path && t.assigned_path.length > 0) || t.current_status?.toLowerCase() === 'rerouted';
                   return (
                     <tr
                       key={t.train_id}

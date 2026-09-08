@@ -1,5 +1,6 @@
-import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { NetworkData, StationNode, SectionEdge, BlockPlanItem } from '../types';
+import { useMapViewport, Point2D } from '../hooks/useMapViewport';
 import { MapPin, Activity, Search, Filter, ZoomIn, ZoomOut, RotateCcw, Move, ShieldCheck, AlertTriangle, Layers, Navigation, ArrowRight, X, Compass, CheckCircle2, Info, GitFork } from 'lucide-react';
 import { usePersistedFilters } from '../hooks/usePersistedFilters';
 
@@ -40,13 +41,21 @@ export const NetworkMap: React.FC<NetworkMapProps> = ({ network, blocks }) => {
   const [hoveredSection, setHoveredSection] = useState<SectionEdge | null>(null);
   const [selectedSection, setSelectedSection] = useState<SectionEdge | null>(null);
 
-  // ── Pan & Zoom Viewport State ──
-  const [zoomLevel, setZoomLevel] = useState<number>(1.0);
-  const [panX, setPanX] = useState<number>(0);
-  const [panY, setPanY] = useState<number>(0);
-  const [isDragging, setIsDragging] = useState<boolean>(false);
-  const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const containerRef = useRef<HTMLDivElement>(null);
+  // ── Shared Pan & Zoom Viewport Hook ──
+  const {
+    viewport,
+    containerRef,
+    isDragging,
+    fitToBounds,
+    zoomIn,
+    zoomOut,
+    handleMouseDown,
+    handleMouseMove,
+    handleMouseUp,
+    handleTouchStart,
+    handleTouchMove,
+    handleTouchEnd,
+  } = useMapViewport({ minScale: 0.15, maxScale: 4.5 });
 
   // Quick lookup dictionary for stations
   const stationMap: Record<string, StationNode> = useMemo(() => {
@@ -70,127 +79,49 @@ export const NetworkMap: React.FC<NetworkMapProps> = ({ network, blocks }) => {
     []
   );
 
-  // ── 1 & 2. REQUIREMENT: Auto-Fit Bounding Box on Load ──
-  const autoFitNetworkView = useCallback(() => {
-    if (!network?.stations.length || !containerRef.current) return;
-
-    const xs = network.stations.map((s) => s.schematic_x_position);
-    const ys = network.stations.map((s) => s.schematic_y_position);
-
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-
-    const netWidth = maxX - minX || 1000;
-    const netHeight = maxY - minY || 800;
-
-    const containerWidth = containerRef.current.clientWidth || 900;
-    const containerHeight = containerRef.current.clientHeight || 600;
-
-    const scaleX = (containerWidth - 80) / netWidth;
-    const scaleY = (containerHeight - 80) / netHeight;
-    const initialZoom = Math.min(scaleX, scaleY, 1.2);
-
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
-
-    const initialPanX = containerWidth / 2 - centerX * initialZoom;
-    const initialPanY = containerHeight / 2 - centerY * initialZoom;
-
-    setZoomLevel(initialZoom);
-    setPanX(initialPanX);
-    setPanY(initialPanY);
-  }, [network]);
-
-  // Initial Auto-Fit Mount
-  useEffect(() => {
-    if (network?.stations.length) {
-      const timer = setTimeout(() => autoFitNetworkView(), 50);
-      return () => clearTimeout(timer);
-    }
-  }, [network, autoFitNetworkView]);
-
-  // Page Scroll Containment inside Map Viewport
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    const handleNativeWheel = (e: WheelEvent) => {
-      e.preventDefault(); // Prevents parent page scrolling while zooming over map
-      const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
-      setZoomLevel((prevZoom) => Math.min(4.5, Math.max(0.2, prevZoom * zoomFactor)));
-    };
-
-    el.addEventListener('wheel', handleNativeWheel, { passive: false });
-    return () => {
-      el.removeEventListener('wheel', handleNativeWheel);
-    };
-  }, []);
-
-  if (!network) {
-    return (
-      <div className="bg-slate-800/80 border border-slate-700 rounded-xl p-8 text-center text-slate-400">
-        Loading Railway Network Topology...
-      </div>
-    );
-  }
-
-  // Evaluate individual physical track status
-  const getTrackStatus = (secCode: string, trackNum: number) => {
-    const block = blocks.find(
-      (b) => b.section_code === secCode && (b.target_track_number === trackNum || !b.target_track_number)
-    );
-
-    if (block) {
-      if (block.status === 'Approved') return { status: 'APPROVED_BLOCK', color: '#ef4444', label: `APPROVED BLOCK (${block.block_id})` };
-      return { status: 'PROPOSED_BLOCK', color: '#f59e0b', label: `PROPOSED BLOCK (${block.block_id})` };
-    }
-
-    if (secCode.includes('GZB_ALJN') || secCode.includes('MB_BE') || secCode.includes('PRYJ_BSB')) {
-      return { status: 'AT_RISK', color: '#f59e0b', label: 'AT-RISK ASSET (WEAR / FAULT)' };
-    }
-
-    return { status: 'CLEAR', color: '#10b981', label: 'HEALTHY / FREE' };
-  };
-
   // Filter stations based on selected Zone or Search
-  const filteredStations = network.stations.filter((st) => {
-    if (selectedZone !== 'ALL' && selectedZone !== 'MAIN') {
-      if (st.zone !== selectedZone) return false;
-    }
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const matchCode = st.code.toLowerCase().includes(q);
-      const matchName = st.name?.toLowerCase().includes(q);
-      if (!matchCode && !matchName) return false;
-    }
-    return true;
-  });
+  const filteredStations = useMemo(() => {
+    if (!network) return [];
+    return network.stations.filter((st) => {
+      if (selectedZone !== 'ALL' && selectedZone !== 'MAIN') {
+        if (st.zone !== selectedZone) return false;
+      }
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchCode = st.code.toLowerCase().includes(q);
+        const matchName = st.name?.toLowerCase().includes(q);
+        if (!matchCode && !matchName) return false;
+      }
+      return true;
+    });
+  }, [network, selectedZone, searchQuery]);
 
   // Filter sections connecting visible stations
-  const filteredSections = network.sections.filter((sec) => {
-    if (selectedZone === 'MAIN') {
-      return !sec.code.startsWith('SEC_STN');
-    }
-    if (selectedZone !== 'ALL') {
-      const startSt = stationMap[sec.start_station_code];
-      const endSt = stationMap[sec.end_station_code];
-      if (startSt?.zone !== selectedZone && endSt?.zone !== selectedZone) return false;
-    }
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const matchSec = sec.code.toLowerCase().includes(q);
-      const matchStart = sec.start_station_code.toLowerCase().includes(q);
-      const matchEnd = sec.end_station_code.toLowerCase().includes(q);
-      if (!matchSec && !matchStart && !matchEnd) return false;
-    }
-    return true;
-  });
+  const filteredSections = useMemo(() => {
+    if (!network) return [];
+    return network.sections.filter((sec) => {
+      if (selectedZone === 'MAIN') {
+        return !sec.code.startsWith('SEC_STN');
+      }
+      if (selectedZone !== 'ALL') {
+        const startSt = stationMap[sec.start_station_code];
+        const endSt = stationMap[sec.end_station_code];
+        if (startSt?.zone !== selectedZone && endSt?.zone !== selectedZone) return false;
+      }
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchSec = sec.code.toLowerCase().includes(q);
+        const matchStart = sec.start_station_code.toLowerCase().includes(q);
+        const matchEnd = sec.end_station_code.toLowerCase().includes(q);
+        if (!matchSec && !matchStart && !matchEnd) return false;
+      }
+      return true;
+    });
+  }, [network, selectedZone, searchQuery, stationMap]);
 
-  // ── 3 & 7. REQUIREMENT: Graph Pathfinder for Source -> Destination Route Highlighting ──
+  // ── Graph Pathfinder for Source -> Destination Route Highlighting ──
   const highlightedRoutePath = useMemo(() => {
-    if (!sourceStationCode || !targetStationCode || sourceStationCode === targetStationCode) return null;
+    if (!network || !sourceStationCode || !targetStationCode || sourceStationCode === targetStationCode) return null;
 
     // Adjacency graph
     const adj: Record<string, { node: string; sec: SectionEdge }[]> = {};
@@ -244,7 +175,93 @@ export const NetworkMap: React.FC<NetworkMapProps> = ({ network, blocks }) => {
     }
 
     return null;
-  }, [sourceStationCode, targetStationCode, network.sections, blocks]);
+  }, [network, sourceStationCode, targetStationCode, blocks]);
+
+  // ── Auto-Fit Network View with Source & Destination Sanity Check ──
+  const autoFitNetworkView = useCallback(() => {
+    if (!network?.stations.length) return;
+
+    // Critical endpoints: explicitly include source and target station,
+    // plus all stations along the highlighted path.
+    const critical: Point2D[] = [];
+    const addedCritical = new Set<string>();
+
+    const addCrit = (code?: string) => {
+      if (!code || addedCritical.has(code)) return;
+      const s = stationMap[code];
+      if (s) {
+        critical.push({ x: s.schematic_x_position, y: s.schematic_y_position });
+        addedCritical.add(code);
+      }
+    };
+
+    addCrit(sourceStationCode);
+    addCrit(targetStationCode);
+    if (highlightedRoutePath) {
+      highlightedRoutePath.nodes.forEach(addCrit);
+    }
+
+    const stationsToFit = filteredStations.length > 0 ? filteredStations : network.stations;
+    const allPts: Point2D[] = stationsToFit.map((s) => ({
+      x: s.schematic_x_position,
+      y: s.schematic_y_position,
+    }));
+
+    fitToBounds(allPts, critical, {
+      paddingRatio: 0.08, // 8% padding margin on all sides
+      minPadding: 50,
+      minZoom: 0.15,
+      maxZoom: 1.6,
+    });
+  }, [network, sourceStationCode, targetStationCode, highlightedRoutePath, filteredStations, stationMap, fitToBounds]);
+
+  // Re-fit whenever network loads, source/destination changes, or zone filter changes
+  useEffect(() => {
+    if (network?.stations.length) {
+      const timer = setTimeout(() => autoFitNetworkView(), 50);
+      return () => clearTimeout(timer);
+    }
+  }, [network, sourceStationCode, targetStationCode, selectedZone, autoFitNetworkView]);
+
+  // Re-fit on container resize (e.g. window resize or tab activation)
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+
+    const ro = new ResizeObserver(() => {
+      autoFitNetworkView();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [autoFitNetworkView, containerRef]);
+
+  if (!network) {
+    return (
+      <div className="bg-slate-800/80 border border-slate-700 rounded-xl p-8 text-center text-slate-400">
+        Loading Railway Network Topology...
+      </div>
+    );
+  }
+
+  // Evaluate individual physical track status
+  const getTrackStatus = (secCode: string, trackNum: number) => {
+    const block = blocks.find(
+      (b) => b.section_code === secCode && (b.target_track_number === trackNum || !b.target_track_number)
+    );
+
+    if (block) {
+      if (block.status === 'Approved') return { status: 'APPROVED_BLOCK', color: '#ef4444', label: `APPROVED BLOCK (${block.block_id})` };
+      return { status: 'PROPOSED_BLOCK', color: '#f59e0b', label: `PROPOSED BLOCK (${block.block_id})` };
+    }
+
+    if (secCode.includes('GZB_ALJN') || secCode.includes('MB_BE') || secCode.includes('PRYJ_BSB')) {
+      return { status: 'AT_RISK', color: '#f59e0b', label: 'AT-RISK ASSET (WEAR / FAULT)' };
+    }
+
+    return { status: 'CLEAR', color: '#10b981', label: 'HEALTHY / FREE' };
+  };
+
+
 
   // ── 4. REQUIREMENT: Greedy Collision Avoidance Label-Placement Algorithm ──
   const placedLabels = useMemo(() => {
@@ -294,7 +311,7 @@ export const NetworkMap: React.FC<NetworkMapProps> = ({ network, blocks }) => {
         majorStationCodes.has(st.code);
 
       // Level-of-Detail (LOD): Minor non-priority stations reveal progressively as user zooms in (>= 1.4)
-      if (!isHighPriority && zoomLevel < 1.4) return;
+      if (!isHighPriority && viewport.scale < 1.4) return;
 
       const labelWidth = Math.max(32, st.code.length * 8.5);
       const labelHeight = 14;
@@ -325,7 +342,7 @@ export const NetworkMap: React.FC<NetworkMapProps> = ({ network, blocks }) => {
     });
 
     return visibleLabelCodes;
-  }, [filteredStations, sourceStationCode, targetStationCode, highlightedRoutePath, hoveredStation, selectedStation, searchQuery, majorStationCodes, zoomLevel]);
+  }, [filteredStations, sourceStationCode, targetStationCode, highlightedRoutePath, hoveredStation, selectedStation, searchQuery, majorStationCodes, viewport.scale]);
 
   // Bezier curve calculation helper for curved rail connectors
   const getCurvedBezierPath = (x1: number, y1: number, x2: number, y2: number, offsetPx: number = 0) => {
@@ -345,22 +362,7 @@ export const NetworkMap: React.FC<NetworkMapProps> = ({ network, blocks }) => {
     return `M ${x1} ${y1} Q ${ctrlX} ${ctrlY} ${x2} ${y2}`;
   };
 
-  // Drag handlers
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return;
-    setIsDragging(true);
-    dragStartRef.current = { x: e.clientX - panX, y: e.clientY - panY };
-  };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
-    setPanX(e.clientX - dragStartRef.current.x);
-    setPanY(e.clientY - dragStartRef.current.y);
-  };
-
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
 
   // Click on station: selects station node for inspection and option to set origin/destination
   const handleStationClick = (st: StationNode) => {
@@ -570,7 +572,7 @@ export const NetworkMap: React.FC<NetworkMapProps> = ({ network, blocks }) => {
             </div>
 
             <div className="text-[11px] font-mono text-slate-400">
-              Zoom: <span className="text-blue-400 font-bold">{Math.round(zoomLevel * 100)}%</span> · Showing {placedLabels.size} labels (Collision-Free)
+              Zoom: <span className="text-blue-400 font-bold">{Math.round(viewport.scale * 100)}%</span> · Showing {placedLabels.size} labels (Collision-Free)
             </div>
           </div>
 
@@ -585,6 +587,10 @@ export const NetworkMap: React.FC<NetworkMapProps> = ({ network, blocks }) => {
               setHoveredStation(null);
               setHoveredSection(null);
             }}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onTouchCancel={handleTouchEnd}
             style={{ overscrollBehavior: 'contain', touchAction: 'none' }}
             className={`w-full h-[600px] bg-slate-950/90 rounded-lg border border-slate-800 relative overflow-hidden ${
               isDragging ? 'cursor-grabbing' : 'cursor-grab'
@@ -595,8 +601,8 @@ export const NetworkMap: React.FC<NetworkMapProps> = ({ network, blocks }) => {
               className="absolute inset-0 opacity-10 pointer-events-none"
               style={{
                 backgroundImage: 'radial-gradient(#38bdf8 1px, transparent 1px)',
-                backgroundSize: `${40 * zoomLevel}px ${40 * zoomLevel}px`,
-                backgroundPosition: `${panX}px ${panY}px`,
+                backgroundSize: `${40 * viewport.scale}px ${40 * viewport.scale}px`,
+                backgroundPosition: `${viewport.x}px ${viewport.y}px`,
               }}
             />
 
@@ -605,8 +611,8 @@ export const NetworkMap: React.FC<NetworkMapProps> = ({ network, blocks }) => {
               <div
                 className="absolute z-30 bg-slate-900/95 border border-slate-700 p-3 rounded-lg shadow-2xl pointer-events-none text-xs font-mono backdrop-blur-md"
                 style={{
-                  left: Math.min(window.innerWidth - 320, hoveredStation.schematic_x_position * zoomLevel + panX + 15),
-                  top: Math.min(500, hoveredStation.schematic_y_position * zoomLevel + panY + 15),
+                  left: Math.min(window.innerWidth - 320, hoveredStation.schematic_x_position * viewport.scale + viewport.x + 15),
+                  top: Math.min(500, hoveredStation.schematic_y_position * viewport.scale + viewport.y + 15),
                 }}
               >
                 <div className="font-bold text-blue-400 flex items-center justify-between gap-3">
@@ -646,14 +652,14 @@ export const NetworkMap: React.FC<NetworkMapProps> = ({ network, blocks }) => {
             {/* SVG Group shifted by pan & scale */}
             <div
               style={{
-                transform: `translate(${panX}px, ${panY}px) scale(${zoomLevel})`,
+                transform: `translate3d(${viewport.x}px, ${viewport.y}px, 0px) scale(${viewport.scale})`,
                 transformOrigin: '0 0',
-                transition: isDragging ? 'none' : 'transform 0.1s ease-out',
+                transition: 'none',
                 width: 3200,
-                height: 2000,
+                height: 2400,
               }}
             >
-              <svg viewBox="0 0 3200 2000" className="w-[3200px] h-[2000px] pointer-events-auto">
+              <svg viewBox="0 0 3200 2400" className="w-[3200px] h-[2400px] pointer-events-auto">
                 {/* ── PASS 1: Draw Background Network Sections (Edges) ── */}
                 {backgroundSections.map((sec) => {
                   const startSt = stationMap[sec.start_station_code];
@@ -916,14 +922,14 @@ export const NetworkMap: React.FC<NetworkMapProps> = ({ network, blocks }) => {
             {/* Floating Zoom Controls Overlay */}
             <div className="absolute bottom-4 right-4 flex flex-col space-y-1.5 z-20 bg-slate-900/90 border border-slate-700/90 p-1.5 rounded-lg shadow-2xl backdrop-blur-md">
               <button
-                onClick={() => setZoomLevel((z) => Math.min(4.5, z * 1.25))}
+                onClick={() => zoomIn()}
                 className="p-2 bg-slate-800 hover:bg-slate-700 text-white rounded transition flex items-center justify-center shadow"
                 title="Zoom In (+)"
               >
                 <ZoomIn className="w-4 h-4" />
               </button>
               <button
-                onClick={() => setZoomLevel((z) => Math.max(0.2, z / 1.25))}
+                onClick={() => zoomOut()}
                 className="p-2 bg-slate-800 hover:bg-slate-700 text-white rounded transition flex items-center justify-center shadow"
                 title="Zoom Out (-)"
               >
